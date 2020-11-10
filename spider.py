@@ -1,15 +1,13 @@
 import sqlite3
-import urllib.error
+import urllib
 import ssl
-from urllib.parse import urljoin
-from urllib.parse import urlparse
-from urllib.request import urlopen
-from bs4 import BeautifulSoup
+from urlparse import urljoin
+from urlparse import urlparse
+from BeautifulSoup import *
 
-# Ignore SSL certificate errors
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
+# Deal with SSL certificate anomalies Python > 2.7
+# scontext = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+scontext = None
 
 conn = sqlite3.connect('spider.sqlite')
 cur = conn.cursor()
@@ -27,10 +25,10 @@ cur.execute('''CREATE TABLE IF NOT EXISTS Webs (url TEXT UNIQUE)''')
 cur.execute('SELECT id,url FROM Pages WHERE html is NULL and error is NULL ORDER BY RANDOM() LIMIT 1')
 row = cur.fetchone()
 if row is not None:
-    print("Restarting existing crawl.  Remove spider.sqlite to start a fresh crawl.")
+    print "Restarting existing crawl.  Remove spider.sqlite to start a fresh crawl."
 else :
-    starturl = input('Enter web url or enter: ')
-    if ( len(starturl) < 1 ) : starturl = 'http://www.dr-chuck.com/'
+    starturl = raw_input('Enter web url or enter: ')
+    if ( len(starturl) < 1 ) : starturl = 'http://python-data.dr-chuck.net/'
     if ( starturl.endswith('/') ) : starturl = starturl[:-1]
     web = starturl
     if ( starturl.endswith('.htm') or starturl.endswith('.html') ) :
@@ -48,12 +46,12 @@ webs = list()
 for row in cur:
     webs.append(str(row[0]))
 
-print(webs)
+print webs
 
 many = 0
 while True:
     if ( many < 1 ) :
-        sval = input('How many pages:')
+        sval = raw_input('How many pages:')
         if ( len(sval) < 1 ) : break
         many = int(sval)
     many = many - 1
@@ -65,43 +63,48 @@ while True:
         fromid = row[0]
         url = row[1]
     except:
-        print('No unretrieved HTML pages found')
+        print 'No unretrieved HTML pages found'
         many = 0
         break
 
-    print(fromid, url, end=' ')
+    print fromid, url,
 
     # If we are retrieving this page, there should be no links from it
     cur.execute('DELETE from Links WHERE from_id=?', (fromid, ) )
     try:
-        document = urlopen(url, context=ctx)
+        # Deal with SSL certificate anomalies Python > 2.7
+        # scontext = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        # document = urllib.urlopen(url, context=scontext)
+
+        # Normal Unless you encounter certificate problems
+        document = urllib.urlopen(url)
 
         html = document.read()
         if document.getcode() != 200 :
-            print("Error on page: ",document.getcode())
+            print "Error on page: ",document.getcode()
             cur.execute('UPDATE Pages SET error=? WHERE url=?', (document.getcode(), url) )
 
-        if 'text/html' != document.info().get_content_type() :
-            print("Ignore non text/html page")
-            cur.execute('DELETE FROM Pages WHERE url=?', ( url, ) )
+        if 'text/html' != document.info().gettype() :
+            print "Ignore non text/html page"
+            cur.execute('UPDATE Pages SET error=-1 WHERE url=?', (url, ) )
             conn.commit()
             continue
 
-        print('('+str(len(html))+')', end=' ')
+        print '('+str(len(html))+')',
 
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(html)
     except KeyboardInterrupt:
-        print('')
-        print('Program interrupted by user...')
+        print ''
+        print 'Program interrupted by user...'
         break
     except:
-        print("Unable to retrieve or parse page")
+        print "Unable to retrieve or parse page"
         cur.execute('UPDATE Pages SET error=-1 WHERE url=?', (url, ) )
         conn.commit()
         continue
 
     cur.execute('INSERT OR IGNORE INTO Pages (url, html, new_rank) VALUES ( ?, NULL, 1.0 )', ( url, ) )
-    cur.execute('UPDATE Pages SET html=? WHERE url=?', (memoryview(html), url ) )
+    cur.execute('UPDATE Pages SET html=? WHERE url=?', (buffer(html), url ) )
     conn.commit()
 
     # Retrieve all of the anchor tags
@@ -121,7 +124,7 @@ while True:
         # print href
         if ( len(href) < 1 ) : continue
 
-		# Check if the URL is in any of the webs
+        # Check if the URL is in any of the webs
         found = False
         for web in webs:
             if ( href.startswith(web) ) :
@@ -138,12 +141,12 @@ while True:
             row = cur.fetchone()
             toid = row[0]
         except:
-            print('Could not retrieve id')
+            print 'Could not retrieve id'
             continue
         # print fromid, toid
         cur.execute('INSERT OR IGNORE INTO Links (from_id, to_id) VALUES ( ?, ? )', ( fromid, toid ) )
 
 
-    print(count)
+    print count
 
 cur.close()
